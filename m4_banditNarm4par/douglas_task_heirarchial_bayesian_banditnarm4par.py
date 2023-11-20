@@ -35,6 +35,9 @@ for idx, subj in enumerate(unique_subjects):
     los_matrix[idx, :len(subj_data)] = subj_data['loss']
     choice_matrix[idx, :len(subj_data)] = subj_data['choice']
 
+# Calculate Narm (number of unique choices) and add to stan_data
+Narm = df['choice'].nunique()
+
 # Prepare data for Stan model
 stan_data = {
     'N': N,
@@ -42,7 +45,8 @@ stan_data = {
     'Tsubj': Tsubj,
     'rew': rew_matrix,
     'los': los_matrix,
-    'choice': choice_matrix
+    'choice': choice_matrix,
+    'Narm': Narm  # Include Narm in the data dictionary
 }
 
 # Check shapes of the matrices
@@ -60,7 +64,6 @@ assert len(Tsubj) == N, "Incorrect length for Tsubj array"
 print("Tsubj Sample:", Tsubj[:5])
 
 stan_model_code = """
-// Seymour et al 2012 J neuro model, w/o C (chioce perseveration)
 data {
   int<lower=1> N;
   int<lower=1> T;
@@ -68,11 +71,12 @@ data {
   real rew[N, T];
   real los[N, T];
   int choice[N, T];
+  int Narm;
 }
 
 transformed data {
-  vector[4] initV;
-  initV = rep_vector(0.0, 4);
+  vector[Narm] initV;
+  initV = rep_vector(0.0, Narm);
 }
 
 parameters {
@@ -116,11 +120,11 @@ model {
 
   for (i in 1:N) {
     // Define values
-    vector[4] Qr;
-    vector[4] Qp;
-    vector[4] PEr_fic; // prediction error - for reward fictive updating (for unchosen options)
-    vector[4] PEp_fic; // prediction error - for punishment fictive updating (for unchosen options)
-    vector[4] Qsum;    // Qsum = Qrew + Qpun + perseverance
+    vector[Narm] Qr;
+    vector[Narm] Qp;
+    vector[Narm] PEr_fic; // prediction error - for reward fictive updating (for unchosen options)
+    vector[Narm] PEp_fic; // prediction error - for punishment fictive updating (for unchosen options)
+    vector[Narm] Qsum;    // Qsum = Qrew + Qpun + perseverance
 
     real Qr_chosen;
     real Qp_chosen;
@@ -186,11 +190,11 @@ generated quantities {
   { // local section, this saves time and space
     for (i in 1:N) {
       // Define values
-      vector[4] Qr;
-      vector[4] Qp;
-      vector[4] PEr_fic; // prediction error - for reward fictive updating (for unchosen options)
-      vector[4] PEp_fic; // prediction error - for punishment fictive updating (for unchosen options)
-      vector[4] Qsum;    // Qsum = Qrew + Qpun + perseverance
+      vector[Narm] Qr;
+      vector[Narm] Qp;
+      vector[Narm] PEr_fic; // prediction error - for reward fictive updating (for unchosen options)
+      vector[Narm] PEp_fic; // prediction error - for punishment fictive updating (for unchosen options)
+      vector[Narm] Qsum;    // Qsum = Qrew + Qpun + perseverance
 
       real Qr_chosen;
       real Qp_chosen;
@@ -239,3 +243,37 @@ generated quantities {
 sm = pystan.StanModel(model_code=stan_model_code)
 
 fit = sm.sampling(data=stan_data, iter=4000, warmup=2000, chains=4, seed=123, refresh=400)
+
+print(fit)
+
+fit_summary = fit.summary()
+print(fit_summary)
+
+rhats = fit_summary['summary'][:, -1]
+if all(rhats < 1.05):
+    print("All R-hat values are below 1.05, indicating potential convergence.")
+else:
+    print("Some R-hat values exceed 1.05, indicating potential lack of convergence.")
+
+problematic_parameters = fit_summary['summary_rownames'][rhats > 1.05]
+print("Parameters with potential convergence issues:", problematic_parameters)
+
+!pip install arviz
+
+import arviz as az
+
+idata = az.from_pystan(fit)
+
+az.plot_trace(idata)
+
+samples = fit.extract()
+
+results = fit.extract(permuted=True)
+Arew = results['Arew']
+Apun = results['Apun']
+R = results['R']
+P = results['P']
+
+Arew
+
+Apun
