@@ -1,13 +1,30 @@
 import numpy as np
 import pandas as pd
 
-# Initialize parameters
+# Hyperparameters for the group-level distributions
+mu_pr_Apun = 0.5  # Mean for punishment learning rate
+sigma_Apun = 0.1  # Standard deviation for punishment learning rate
+
+mu_pr_Arew = 0.5  # Mean for reward learning rate
+sigma_Arew = 0.1  # Standard deviation for reward learning rate
+
+mu_pr_beta = 5    # Mean for beta (inverse temperature)
+sigma_beta = 1    # Standard deviation for beta
+
+# Initialize simulation parameters
 num_subjects = 14
 equal_num_trials = 100
 np.random.seed(42)  # For reproducibility
-learning_rates_pun = np.random.uniform(0, 1, num_subjects)
-learning_rates_rew = np.random.uniform(0, 1, num_subjects)
-betas = np.random.uniform(0, 10, num_subjects)
+
+# Simulating individual-level parameters from group-level distributions
+learning_rates_pun = np.random.normal(mu_pr_Apun, sigma_Apun, num_subjects)
+learning_rates_rew = np.random.normal(mu_pr_Arew, sigma_Arew, num_subjects)
+betas = np.random.normal(mu_pr_beta, sigma_beta, num_subjects)
+
+# Ensuring parameters remain within their logical bounds
+learning_rates_pun = np.clip(learning_rates_pun, 0, 1)
+learning_rates_rew = np.clip(learning_rates_rew, 0, 1)
+betas = np.clip(betas, 0, np.inf)  # Assuming beta must be positive
 
 # Initialize a dataframe to store the simulated data
 simulated_data_adjusted = pd.DataFrame(columns=['subjid', 'cond', 'decisions', 'outcomes'])
@@ -40,6 +57,8 @@ for subj in range(1, num_subjects + 1):
         # Append the trial data to the dataframe
         simulated_data_adjusted = simulated_data_adjusted.append({'subjid': subj, 'cond': 1, 'decisions': decision, 'outcomes': outcome}, ignore_index=True)
 
-# Save the adjusted simulated data to a CSV file
-adjusted_simulated_file_path = '/mnt/data/simulated_data_adjusted.csv'
+# Specify the file path for saving the simulated data
+adjusted_simulated_file_path = 'simulated_data_adjusted.csv'
 simulated_data_adjusted.to_csv(adjusted_simulated_file_path, index=False)
+
+print(f"Simulated data saved to {adjusted_simulated_file_path}.")
