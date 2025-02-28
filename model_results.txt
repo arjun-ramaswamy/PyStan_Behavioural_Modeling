@@ -1,0 +1,81 @@
+---- Linear Mixed-Effects Model (LME) Summary ----
+Linear mixed model fit by REML ['lmerMod']
+Formula: LFP ~ Trial_Type + HAM.D + HIT.6 + Model.fitting + (1 | Subj)
+   Data: data_long
+
+REML criterion at convergence: 163
+
+Scaled residuals: 
+     Min       1Q   Median       3Q      Max 
+-2.27027 -0.39221  0.05843  0.33859  3.07599 
+
+Random effects:
+ Groups   Name        Variance Std.Dev.
+ Subj     (Intercept) 1.272    1.128   
+ Residual             2.063    1.436   
+Number of obs: 42, groups:  Subj, 14
+
+Fixed effects:
+               Estimate Std. Error t value
+(Intercept)    14.47583    7.17269   2.018
+Trial_TypeLoss -2.27179    0.54285  -4.185
+Trial_TypeNeu  -2.88932    0.54285  -5.322
+HAM.D           0.06838    0.05559   1.230
+HIT.6          -0.16603    0.10843  -1.531
+Model.fitting  -0.31841    0.96642  -0.329
+
+Correlation of Fixed Effects:
+            (Intr) Trl_TL Trl_TN HAM.D  HIT.6 
+Tril_TypLss -0.038                            
+Trial_TypeN -0.038  0.500                     
+HAM.D        0.394  0.000  0.000              
+HIT.6       -0.989  0.000  0.000 -0.505       
+Model.fttng  0.117  0.000  0.000  0.625 -0.232
+
+---- ANCOVA Model Summary ----
+
+Call:
+lm(formula = LFP ~ Trial_Type + HAM.D + HIT.6 + Model.fitting, 
+    data = data_long)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-2.9612 -1.0109 -0.0608  0.8293  5.7273 
+
+Coefficients:
+               Estimate Std. Error t value Pr(>|t|)    
+(Intercept)    14.47583    5.23681   2.764 0.008938 ** 
+Trial_TypeLoss -2.27179    0.66794  -3.401 0.001656 ** 
+Trial_TypeNeu  -2.88932    0.66794  -4.326 0.000115 ***
+HAM.D           0.06838    0.04051   1.688 0.100087    
+HIT.6          -0.16603    0.07902  -2.101 0.042704 *  
+Model.fitting  -0.31841    0.70435  -0.452 0.653933    
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 1.767 on 36 degrees of freedom
+Multiple R-squared:  0.4446,	Adjusted R-squared:  0.3675 
+F-statistic: 5.764 on 5 and 36 DF,  p-value: 0.0005246
+
+
+---- Post-hoc Tukey Test Results ----
+$emmeans
+ Trial_Type emmean    SE   df lower.CL upper.CL
+ Rew         3.599 0.488 24.4    2.592     4.61
+ Loss        1.327 0.488 24.4    0.320     2.33
+ Neu         0.709 0.488 24.4   -0.297     1.72
+
+Results are averaged over the levels of: Model.fitting 
+Degrees-of-freedom method: kenward-roger 
+Confidence level used: 0.95 
+
+$contrasts
+ contrast   estimate    SE df t.ratio p.value
+ Rew - Loss    2.272 0.543 26   4.185  0.0008
+ Rew - Neu     2.889 0.543 26   5.322  <.0001
+ Loss - Neu    0.618 0.543 26   1.138  0.5002
+
+Results are averaged over the levels of: Model.fitting 
+Degrees-of-freedom method: kenward-roger 
+P value adjustment: tukey method for comparing a family of 3 estimates 
+
