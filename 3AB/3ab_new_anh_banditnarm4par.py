@@ -16,68 +16,287 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-#dataframe df
+"""Preare stan data
+
+Version 1
+"""
+
+import pandas as pd
+import numpy as np
+
+# Load dataset
 df = pd.read_csv('merged_ANH_stan.csv')
 
-# Determine the number of unique subjects and the maximum number of trials
-unique_subjects = df['subjid'].unique()
+# Choose the number of subjects to sample
+num_subjects_to_sample = 5  # Change this to include a different number of subjects
+
+# Get unique subject IDs and sort them
+subj_map = {subj: idx + 1 for idx, subj in enumerate(df['subjid'].unique())}
+df['subjid_num'] = df['subjid'].map(subj_map)  # Replace subjid with numerical index
+
+# Select only the first `num_subjects_to_sample` subjects
+selected_subjects = list(subj_map.values())[:num_subjects_to_sample]
+df_selected = df[df['subjid_num'].isin(selected_subjects)]
+
+# Get unique numerical subjects in selected dataset
+unique_subjects = np.array(sorted(df_selected['subjid_num'].unique()))
 N = len(unique_subjects)
-max_trials = df.groupby('subjid').size().max()
+max_trials = df_selected.groupby('subjid_num').size().max()
 
-# Initialize the Tsubj array and matrices for rew, los, and choice
-Tsubj = []
-rew_matrix = np.zeros((N, max_trials))
-los_matrix = np.zeros((N, max_trials))
-choice_matrix = np.zeros((N, max_trials), dtype=int)
+# Initialize data arrays
+Tsubj = np.zeros(N, dtype=int)
+rew_matrix = np.zeros((N, max_trials), dtype=np.float32)
+los_matrix = np.zeros((N, max_trials), dtype=np.float32)
+choice_matrix = np.full((N, max_trials), -1, dtype=int)  # Initialize with -1 instead of 0
 
-# Define the column name that contains subject IDs
-subject_id_column = 'subjid'
-
-# Populate the matrices and Tsubj array
+# Fill matrices using numerical subject IDs
 for idx, subj in enumerate(unique_subjects):
-    subj_data = df[df['subjid'] == subj]
-    Tsubj.append(len(subj_data))
-    rew_matrix[idx, :len(subj_data)] = subj_data['gain']
-    los_matrix[idx, :len(subj_data)] = subj_data['loss']
-    choice_matrix[idx, :len(subj_data)] = subj_data['choice']
+    subj_data = df_selected[df_selected['subjid_num'] == subj]
+    num_trials = len(subj_data)
 
-# Calculate Narm (number of unique choices) and add to stan_data
-Narm = df['choice'].nunique()
+    Tsubj[idx] = num_trials
+    rew_matrix[idx, :num_trials] = subj_data['gain'].to_numpy()
+    los_matrix[idx, :num_trials] = subj_data['loss'].to_numpy()
 
-# Prepare data for Stan model
+    # Only populate valid trials in choice_matrix
+    choice_vals = subj_data['choice'].to_numpy().astype(int)
+    choice_matrix[idx, :num_trials] = choice_vals
+
+# **Fix: Replace -1 with 1 before passing to Stan**
+choice_matrix_fixed = np.where(choice_matrix == -1, 1, choice_matrix)  # Replace -1 with 1
+
+# Number of unique choices
+Narm = df_selected['choice'].nunique()
+
+# Prepare data for Stan
 stan_data = {
     'N': N,
     'T': max_trials,
     'Tsubj': Tsubj,
     'rew': rew_matrix,
     'los': los_matrix,
-    'choice': choice_matrix,
-    'Narm': Narm  # Include Narm in the data dictionary
+    'choice': choice_matrix_fixed,  # Use the fixed version
+    'Narm': Narm
 }
 
-# Check shapes of the matrices
+# Store mapping in case it's needed later
+subj_map_df = pd.DataFrame(list(subj_map.items()), columns=['Original_Subjid', 'Numeric_Index'])
+subj_map_df.to_csv('subjid_mapping.csv', index=False)
+
+# Assertions to verify correctness
 assert rew_matrix.shape == (N, max_trials), "Incorrect shape for rew_matrix"
 assert los_matrix.shape == (N, max_trials), "Incorrect shape for los_matrix"
-assert choice_matrix.shape == (N, max_trials), "Incorrect shape for choice_matrix"
-
-# Check the first few rows of the matrices to inspect the content
-print("Rew Matrix Sample:", rew_matrix[:5])
-print("Los Matrix Sample:", los_matrix[:5])
-print("Choice Matrix Sample:", choice_matrix[:5])
-
-# Check the Tsubj array for correct lengths
+assert choice_matrix_fixed.shape == (N, max_trials), "Incorrect shape for choice_matrix"
 assert len(Tsubj) == N, "Incorrect length for Tsubj array"
-print("Tsubj Sample:", Tsubj[:5])
+
+# Print Samples for Validation
+print(f"Sampling {num_subjects_to_sample} subjects...")
+print("Rew Matrix Sample:\n", rew_matrix[:5])
+print("Los Matrix Sample:\n", los_matrix[:5])
+print("Choice Matrix Sample (Check -1 for padding before fix):\n", choice_matrix[:5])
+print("Choice Matrix Sample (After Fix, No -1s):\n", choice_matrix_fixed[:5])
+print("Tsubj Sample (Trial Counts Per Subject):\n", Tsubj[:5])
+print("Subject Mapping Sample:\n", subj_map_df.head())
+
+# Ensure no unexpected 0s or -1s in choice_matrix_fixed
+print("Unique values in choice_matrix_fixed:", np.unique(choice_matrix_fixed))
+
+"""Version 2"""
+
+import pandas as pd
+import numpy as np
+
+# Load dataset
+file_path = "merged_ANH_stan.csv"  # Adjust if needed
+df = pd.read_csv(file_path)
+
+# **1️⃣ Ensure subjid mapping is sorted**
+sorted_subjects = sorted(df['subjid'].unique())  # Ensure consistent subject order
+subj_map = {subj: idx + 1 for idx, subj in enumerate(sorted_subjects)}
+df['subjid_num'] = df['subjid'].map(subj_map)  # Replace subjid with numerical index
+
+# Choose number of subjects to sample
+num_subjects_to_sample = 5  # Change to adjust the number of subjects
+
+# **2️⃣ Select only the first `num_subjects_to_sample` subjects**
+selected_subjects = list(subj_map.values())[:num_subjects_to_sample]
+df_selected = df[df['subjid_num'].isin(selected_subjects)]
+
+# **3️⃣ Ensure trial counts are correct**
+trial_counts = df_selected.groupby('subjid_num').size()
+print("Trial counts per subject:\n", trial_counts)
+
+# Get unique numerical subjects in selected dataset
+unique_subjects = np.array(sorted(df_selected['subjid_num'].unique()))
+N = len(unique_subjects)
+max_trials = trial_counts.max()  # Get the correct max_trials
+
+# **4️⃣ Initialize data arrays**
+Tsubj = np.zeros(N, dtype=int)
+rew_matrix = np.full((N, max_trials), np.nan, dtype=np.float32)  # Fill with NaN initially
+los_matrix = np.full((N, max_trials), np.nan, dtype=np.float32)
+choice_matrix = np.full((N, max_trials), -1, dtype=int)  # Fill with -1 initially
+
+# **5️⃣ Fill matrices using numerical subject IDs**
+for idx, subj in enumerate(unique_subjects):
+    subj_data = df_selected[df_selected['subjid_num'] == subj]
+    num_trials = len(subj_data)
+
+    Tsubj[idx] = num_trials  # Store actual trial count
+    rew_matrix[idx, :num_trials] = subj_data['gain'].to_numpy()
+    los_matrix[idx, :num_trials] = subj_data['loss'].to_numpy()
+
+    # Only populate valid trials in choice_matrix
+    choice_vals = subj_data['choice'].to_numpy().astype(int)
+    choice_matrix[idx, :num_trials] = choice_vals
+
+# **6️⃣ Validate Last Subject Data Integrity**
+print(f"Last subject ({unique_subjects[-1]}) trials:", Tsubj[-1])
+print("Choice matrix sample for last subject:\n", choice_matrix[-1, :10])
+
+# **7️⃣ Fix: Replace only valid trials in choice_matrix_fixed**
+choice_matrix_fixed = np.full((N, max_trials), -1, dtype=int)  # Reinitialize
+for idx in range(N):
+    choice_matrix_fixed[idx, :Tsubj[idx]] = choice_matrix[idx, :Tsubj[idx]]  # Ensure only real trials are filled
+
+# **8️⃣ Ensure no unexpected 0s or -1s in choice_matrix_fixed**
+print("Unique values in choice_matrix_fixed:", np.unique(choice_matrix_fixed))
+
+# **9️⃣ Number of unique choices**
+Narm = df_selected['choice'].nunique()
+
+# **10️⃣ Prepare data for Stan**
+stan_data = {
+    'N': N,
+    'T': max_trials,
+    'Tsubj': Tsubj,
+    'rew': rew_matrix,
+    'los': los_matrix,
+    'choice': choice_matrix_fixed,  # Use the fixed version
+    'Narm': Narm
+}
+
+# **11️⃣ Assertions to verify correctness**
+assert rew_matrix.shape == (N, max_trials), "Incorrect shape for rew_matrix"
+assert los_matrix.shape == (N, max_trials), "Incorrect shape for los_matrix"
+assert choice_matrix_fixed.shape == (N, max_trials), "Incorrect shape for choice_matrix"
+assert len(Tsubj) == N, "Incorrect length for Tsubj array"
+
+# **12️⃣ Print Samples for Validation**
+print(f"✅ Successfully sampled {num_subjects_to_sample} subjects")
+print("Rew Matrix Sample:\n", rew_matrix[:5])
+print("Los Matrix Sample:\n", los_matrix[:5])
+print("Choice Matrix Sample (Check -1 for padding before fix):\n", choice_matrix[:5])
+print("Choice Matrix Sample (After Fix, No -1s):\n", choice_matrix_fixed[:5])
+print("Tsubj Sample (Trial Counts Per Subject):\n", Tsubj[:5])
+
+# **13️⃣ Display subject mappings**
+print("Subject Mapping:\n", subj_map)
+
+"""Version 3 including online "anhedonic" subjects as well"""
+
+import pandas as pd
+import numpy as np
+
+# **1️⃣ Load dataset**
+file_path = "merged_ANH_stan.csv"
+df = pd.read_csv(file_path)
+print(f"✅ Dataset loaded: {df.shape[0]} rows, {df.shape[1]} columns")
+
+# **2️⃣ Ensure subjid mapping is sorted**
+df['subjid'] = df['subjid'].astype(str)  # Ensure subjid is treated as a string
+sorted_subjects = sorted(df['subjid'].unique())  # Ensure consistent subject order
+subj_map = {subj: idx + 1 for idx, subj in enumerate(sorted_subjects)}
+df['subjid_num'] = df['subjid'].map(subj_map)  # Replace subjid with numerical index
+print(f"✅ Unique subjects mapped: {len(subj_map)} subjects")
+
+# **3️⃣ Include all 134 subjects**
+num_subjects_to_sample = 134  # Use all subjects
+selected_subjects = list(subj_map.values())[:num_subjects_to_sample]
+df_selected = df[df['subjid_num'].isin(selected_subjects)]
+print(f"✅ Selected {df_selected['subjid_num'].nunique()} subjects for analysis")
+
+# **4️⃣ Normalize trial numbers per subject** (Ensure trial 1 starts at the first recorded trial)
+df_selected['trial'] = df_selected.groupby('subjid_num')['trial'].transform(lambda x: x - x.min() + 1)
+print("✅ Trial numbers renormalized per subject")
+
+# **5️⃣ Ensure trial counts are correct**
+trial_counts = df_selected.groupby('subjid_num')['trial'].count()
+print(f"✅ Trial counts per subject (sample): {trial_counts.head()}")
+
+# **6️⃣ Define key parameters**
+unique_subjects = np.array(sorted(df_selected['subjid_num'].unique()))
+N = len(unique_subjects)  # Number of subjects
+max_trials = trial_counts.max()  # Get the max trial count across subjects
+print(f"✅ Number of subjects: {N}, Maximum trials across subjects: {max_trials}")
+
+# **7️⃣ Initialize matrices for Stan**
+Tsubj = np.zeros(N, dtype=int)
+rew_matrix = np.full((N, max_trials), np.nan, dtype=np.float32)
+los_matrix = np.full((N, max_trials), np.nan, dtype=np.float32)
+choice_matrix = np.full((N, max_trials), -1, dtype=int)  # Initialize with -1 for missing trials
+
+# **8️⃣ Fill matrices with trial data**
+for idx, subj in enumerate(unique_subjects):
+    subj_data = df_selected[df_selected['subjid_num'] == subj].sort_values('trial')
+    num_trials = len(subj_data)
+
+    Tsubj[idx] = num_trials  # Store actual trial count
+    rew_matrix[idx, :num_trials] = subj_data['gain'].to_numpy()
+    los_matrix[idx, :num_trials] = subj_data['loss'].to_numpy()
+
+    # Populate only valid trials in choice_matrix
+    choice_vals = subj_data['choice'].to_numpy().astype(int)
+    choice_matrix[idx, :num_trials] = choice_vals
+
+print(f"✅ Data matrices initialized and filled")
+
+# **9️⃣ Ensure choice matrix only contains real trials**
+choice_matrix_fixed = np.full((N, max_trials), -1, dtype=int)  # Reinitialize
+for idx in range(N):
+    choice_matrix_fixed[idx, :Tsubj[idx]] = choice_matrix[idx, :Tsubj[idx]]  # Ensure only real trials are filled
+
+# **🔍 10️⃣ Data validation checks**
+unique_choice_values = np.unique(choice_matrix_fixed)  # Ensure only valid values
+unique_loss_values = np.unique(los_matrix)  # Ensure loss values are correctly recoded
+
+print(f"✅ Unique values in choice_matrix_fixed: {unique_choice_values}")
+print(f"✅ Unique values in loss matrix (should be 0, -1): {unique_loss_values}")
+
+# **11️⃣ Get number of unique choices**
+Narm = df_selected['choice'].nunique()
+print(f"✅ Number of unique choices: {Narm}")
+
+# **12️⃣ Prepare data for Stan**
+stan_data = {
+    'N': N,  # Number of subjects
+    'T': max_trials,  # Maximum trials across subjects
+    'Tsubj': Tsubj,  # Number of trials per subject
+    'rew': rew_matrix,  # Reward outcomes
+    'los': los_matrix,  # Loss outcomes
+    'choice': choice_matrix_fixed,  # Choices made
+    'Narm': Narm  # Number of choice options
+}
+
+# **13️⃣ Final assertions to ensure correctness**
+assert rew_matrix.shape == (N, max_trials), "Error: rew_matrix shape incorrect"
+assert los_matrix.shape == (N, max_trials), "Error: los_matrix shape incorrect"
+assert choice_matrix_fixed.shape == (N, max_trials), "Error: choice_matrix shape incorrect"
+assert len(Tsubj) == N, "Error: Tsubj length incorrect"
+
+print(f"✅ Successfully processed {N} subjects for Stan modeling.")
+
+subj_map
 
 stan_model_code = """
-// Seymour et al 2012 J neuro model, w/o C (chioce perseveration)
+// Seymour et al 2012 J Neuro model, w/o C (choice perseveration)
 data {
   int<lower=1> N;
   int<lower=1> T;
-  int<lower=1, upper=T> Tsubj[N];
-  real rew[N, T];
-  real los[N, T];
-  int choice[N, T];
+  array[N] int<lower=1, upper=T> Tsubj;
+  array[N, T] real rew;
+  array[N, T] real los;
+  array[N, T] int choice;
   int Narm;
 }
 
@@ -119,7 +338,7 @@ model {
   mu_pr  ~ normal(0, 1);
   sigma ~ normal(0, 0.2);
 
-  // individual parameters
+  // Individual parameters
   Arew_pr  ~ normal(0, 1.0);
   Apun_pr  ~ normal(0, 1.0);
   R_pr     ~ normal(0, 1.0);
@@ -144,7 +363,7 @@ model {
     Qsum  = initV;
 
     for (t in 1:Tsubj[i]) {
-      // softmax choice
+      // Softmax choice
       choice[i, t] ~ categorical_logit(Qsum);
 
       // Prediction error signals
@@ -153,7 +372,7 @@ model {
       PEr_fic = -Qr;
       PEp_fic = -Qp;
 
-      // store chosen deck Q values (rew and pun)
+      // Store chosen deck Q values (rew and pun)
       Qr_chosen = Qr[choice[i, t]];
       Qp_chosen = Qp[choice[i, t]];
 
@@ -169,6 +388,7 @@ model {
     }
   }
 }
+
 generated quantities {
   // For group level parameters
   real<lower=0, upper=1> mu_Arew;
@@ -177,15 +397,18 @@ generated quantities {
   real<lower=0, upper=30> mu_P;
 
   // For log likelihood calculation
-  real log_lik[N];
+  array[N] real log_lik;
 
   // For posterior predictive check
-  real y_pred[N, T];
+  array[N, T] real y_pred;
 
-  // Matrix to store prediction errors
-  matrix[N, T] pred_error;
+  // Matrix to store rew prediction errors
+  array[N, T] real rew_pred_error;
 
-  // Set all posterior predictions to 0 (avoids NULL values)
+  // Matrix to store pun prediction errors
+  array[N, T] real pun_pred_error;
+
+  // Set all posterior predictions to -1 (avoids NULL values)
   for (i in 1:N) {
     for (t in 1:T) {
       y_pred[i, t] = -1;
@@ -197,7 +420,7 @@ generated quantities {
   mu_R    = Phi_approx(mu_pr[3]) * 30;
   mu_P    = Phi_approx(mu_pr[4]) * 30;
 
-  { // local section, this saves time and space
+  { // Local section, this saves time and space
     for (i in 1:N) {
       // Define values
       vector[Narm] Qr;
@@ -218,20 +441,21 @@ generated quantities {
       log_lik[i] = 0.0;
 
       for (t in 1:Tsubj[i]) {
-        // compute log likelihood of current trial
+        // Compute log likelihood of current trial
         log_lik[i] += categorical_logit_lpmf(choice[i, t] | Qsum);
 
-        // generate posterior prediction for current trial
+        // Generate posterior prediction for current trial
         y_pred[i, t] = categorical_rng(softmax(Qsum));
 
         // Prediction error signals
         PEr     = R[i] * rew[i, t] - Qr[choice[i, t]];
         PEp     = P[i] * los[i, t] - Qp[choice[i, t]];
-        pred_error[i, t] = PEr; // Store prediction error for reward
+        rew_pred_error[i, t] = PEr; // Store prediction error for reward
+        pun_pred_error[i, t] = PEp; // Store prediction error for punishment
         PEr_fic = -Qr;
         PEp_fic = -Qp;
 
-        // store chosen deck Q values (rew and pun)
+        // Store chosen deck Q values (rew and pun)
         Qr_chosen = Qr[choice[i, t]];
         Qp_chosen = Qp[choice[i, t]];
 
@@ -251,240 +475,390 @@ generated quantities {
 
 """
 
-# Compile the model
-sm = pystan.StanModel(model_code=stan_model_code)
+!pip install nest_asyncio
 
-fit = sm.sampling(data=stan_data, iter=4000, warmup=2000, chains=4, seed=123, refresh=400)
+import nest_asyncio
+nest_asyncio.apply()
 
-"""Check fit"""
+posterior = stan.build(stan_model_code, data=stan_data, random_seed=123)
 
-results = fit.extract(permuted=True)
-Arew = results['Arew']
-Apun = results['Apun']
-R = results['R']
-P = results['P']
+# Sample from the posterior
+fit = posterior.sample(num_chains=4, num_samples=2000, num_warmup=1000)
 
-print(fit)
+"""Saving the sampled fit"""
 
-fit_summary = fit.summary()
-print(fit_summary)
+import pickle
 
-rhats = fit_summary['summary'][:, -1]
-if all(rhats < 1.05):
-    print("All R-hat values are below 1.05, indicating potential convergence.")
-else:
-    print("Some R-hat values exceed 1.05, indicating potential lack of convergence.")
+# Save the sampled fit object
+with open("fit_results.pkl", "wb") as f:
+    pickle.dump(fit, f)
 
-problematic_parameters = fit_summary['summary_rownames'][rhats > 1.05]
-print("Parameters with potential convergence issues:", problematic_parameters)
+print("Saved sampled results to 'fit_results.pkl'")
+
+import pickle
+
+# Load the saved fit object
+with open("fit_results.pkl", "rb") as f:
+    fit = pickle.load(f)
+
+print("Loaded sampled results from 'fit_results.pkl'")
+
+parameter_samples = fit.to_frame()
+
+import pandas as pd
+from IPython.display import display
+
+# Extract all parameter samples into a DataFrame
+parameter_samples = fit.to_frame()
+
+# Compute summary statistics for all parameters
+parameter_summary = parameter_samples.describe().T  # Transpose to match format of `print(fit)`
+parameter_summary.reset_index(inplace=True)
+parameter_summary.rename(columns={'index': 'Parameter'}, inplace=True)
+
+# Display all rows and columns in the summary
+pd.set_option('display.max_rows', None)  # Show all rows
+pd.set_option('display.max_columns', None)  # Show all columns
+
+# Print the full summary in the notebook
+print(parameter_summary)
+
+# Alternatively, display as an HTML table (more readable in Colab)
+display(parameter_summary)
+
+# Save the summary to a CSV file for offline inspection
+#parameter_summary.to_csv('parameter_summary.csv', index=False)
+
+# Provide a download link to retrieve the file
+#from google.colab import files
+#files.download('parameter_summary.csv')
 
 """MCMC Trace plots check"""
 
-# Trace plot
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Assume 'fit' is your fitted model from PyStan
-parameter_name = 'mu_Apun'  # Replace with your actual parameter name
-num_chains = fit.sim['chains']
-num_warmup = fit.sim['warmup']  # Number of warm-up iterations
+# Define the parameter to plot
+parameter_name = "mu_Arew"  # Change this to the parameter you want
 
-# Extract the samples for the specific parameter
-samples_dict = fit.extract(permuted=True)
-samples = samples_dict[parameter_name]
+# Convert all samples to a DataFrame
+parameter_samples = fit.to_frame()
 
-# Determine the total number of iterations (including warm-up)
-total_iterations = len(samples)
+# Extract values for the specific parameter
+parameter_samples = parameter_samples[parameter_name].values  # Convert to NumPy array
 
-# Reshape the samples to separate the chains
-# Each chain's samples are concatenated; reshape to separate them
-samples_reshaped = np.reshape(samples, (total_iterations // num_chains, num_chains))
+# Get number of chains
+num_chains = fit.num_chains
+num_samples_per_chain = parameter_samples.shape[0] // num_chains
 
-plt.figure(figsize=(10, 4))
+# Reshape to separate chains (iterations, chains)
+samples_reshaped = parameter_samples.reshape(num_chains, num_samples_per_chain).T
 
-# Differentiate chains and warm-up phase
-colors = ['blue', 'green', 'red', 'purple']  # Add more colors if you have more than 4 chains
+plt.figure(figsize=(10, 6))
+
+# Plot samples for each chain
+colors = ['blue', 'green', 'red', 'purple', 'orange', 'brown']  # Add more colors if needed
 for i in range(num_chains):
-    chain_samples = samples_reshaped[:, i]
-    # Plot warm-up samples
-    plt.plot(chain_samples[:num_warmup], color=colors[i], linestyle='--', alpha=0.7, label=f'Chain {i+1} Warm-up' if i == 0 else '')
-    # Plot post-warm-up samples
-    plt.plot(range(num_warmup, total_iterations // num_chains), chain_samples[num_warmup:], color=colors[i], label=f'Chain {i+1}' if i == 0 else '')
+    plt.plot(samples_reshaped[:, i], color=colors[i % len(colors)], alpha=0.7, label=f'Chain {i + 1}')
 
 plt.title(f'Trace Plot for {parameter_name}')
 plt.xlabel('Iteration')
 plt.ylabel('Parameter Value')
-#plt.legend()
+plt.legend()
+plt.show()
+
+import arviz as az
+import matplotlib.pyplot as plt
+
+# Define the parameter to plot
+parameter_name = "mu_Arew"  # Change this to any parameter you want
+
+# Convert PyStan 3 fit object to ArviZ InferenceData
+idata = az.from_pystan(fit)
+
+# Generate trace plot
+az.plot_trace(idata, var_names=[parameter_name])
+
+# Show the plot
 plt.show()
 
 """Posterior Distribution"""
 
-# Posterior distribution plot
-# Assuming 'fit' is your fitted model from PyStan
-samples = fit.extract(permuted=True)  # This should be a dictionary
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# Now, try to access the desired parameter
-try:
-    arew_samples = samples['Apun']
-    # Plotting
-    plt.figure(figsize=(7, 4))
-    plt.hist(arew_samples, bins=30, density=True)
-    #plt.title('Posterior Distribution for Arew')
-    plt.xlabel('Arew (Reward Learning Rate)')
-    plt.ylabel('Density')
-    plt.show()
-except KeyError:
-    print("Parameter 'Arew' not found in the samples. Check the parameter name.")
+# Convert all posterior samples to a DataFrame
+parameter_samples = fit.to_frame()
+
+# Extract Arew samples for all subjects and flatten into one array
+Arew_samples = parameter_samples.filter(like='Arew.').values.flatten()
+
+# Plotting the posterior distribution
+plt.figure(figsize=(7, 4))
+
+# Histogram (original style)
+plt.hist(Arew_samples, bins=30, density=True, alpha=0.5, color='blue', edgecolor='black', label='Histogram')
+
+# Smooth density plot (new addition)
+sns.kdeplot(Arew_samples, color='red', linewidth=2, label='Density')
+
+plt.xlabel('Arew (Reward Learning Rate)')
+plt.ylabel('Density')
+plt.title('Posterior Distribution for Arew')
+plt.legend()
+plt.show()
 
 """Extract prediction errors"""
 
 import numpy as np
 import pandas as pd
 
-# Extract the 'pred_error' variable from the fit
-pred_error = fit.extract(permuted=True)['pred_error']
+# **Step 1: Extract posterior samples**
+posterior_samples = fit.to_frame()  # Extract posterior samples
 
-# Calculate the mean across the sample dimension (assuming 8000 samples)
-# You can also use np.median if that's more appropriate for your analysis
-pred_error_mean = np.mean(pred_error, axis=0)
+# **Step 2: Extract only `rew_pred_error` variables**
+rew_pred_error_columns = [col for col in posterior_samples.columns if "rew_pred_error" in col]
+rew_pred_error = posterior_samples[rew_pred_error_columns].values  # Convert to NumPy array
 
-# Assuming 'Tsubj' (number of trials for each subject) is part of your data
-# If 'Tsubj' is not in the original data dictionary, you need to define it here
-Tsubj = stan_data['Tsubj']
+# **Step 3: Debugging the extracted shape**
+print("🔹 Step 3: Default shape of rew_pred_error after extraction:", rew_pred_error.shape)
 
-# Initialize a list to store mean prediction errors for each subject
-subject_pred_errors = []
+# **Step 4: Extract number of subjects and their trials**
+num_subjects = len(stan_data['Tsubj'])  # Number of subjects
+trial_counts = np.array(stan_data['Tsubj'])  # Number of trials per subject
+max_trials = max(trial_counts)  # Maximum trials across subjects
+total_expected_trials = sum(trial_counts)  # The correct total trials
 
-# Loop over each subject to extract their specific prediction errors
-for i in range(len(Tsubj)):
-    num_trials = Tsubj[i]  # Number of trials for subject i
-    subject_error = pred_error_mean[i, :num_trials]  # Slice the array for the number of trials
-    subject_pred_errors.append(subject_error)
+# **Step 5: Print extracted trial counts**
+print("🔹 Step 5: Trial counts per subject:", trial_counts)
+print("🔹 Step 5: Maximum trials across subjects:", max_trials)
+print("🔹 Step 5: Expected total trials (sum of Tsubj):", total_expected_trials)
 
-# Now, 'subject_pred_errors' contains the mean prediction errors per subject
-# Each element in the list corresponds to a subject
+# **🚀 Step 6: Fix Extraction Using Subject-Wise Indexing**
+# Instead of assuming trials are packed sequentially, we need to extract subject-wise trials.
 
-# Convert the list of arrays into a DataFrame
-# Each row in the DataFrame corresponds to a subject
-df = pd.DataFrame.from_records(subject_pred_errors)
+rew_pred_error_fixed = np.full((8000, num_subjects, max_trials), np.nan)  # Initialize with NaNs
 
-# Optionally, add a column for subject IDs
-df.insert(0, 'SubjectID', range(1, 1 + len(df)))
+for i in range(num_subjects):
+    num_trials = trial_counts[i]  # Correct number of trials for this subject
 
-# Save to CSV
-df.to_csv('prediction_errors.csv', index=False)
+    # **🚨 Identify Correct Subject-Wise Trial Indices**
+    subject_trial_indices = np.arange(i, rew_pred_error.shape[1], num_subjects)  # Extract every Nth entry
+
+    # **Debugging**
+    print(f"✅ Extracting trials for Subject {i+1}: Found {len(subject_trial_indices)} indices")
+
+    # **Extract correctly & preserve NaNs if missing**
+    rew_pred_error_fixed[:, i, :num_trials] = rew_pred_error[:, subject_trial_indices[:num_trials]]
+
+# **Step 7: Verify reshaped array shape**
+print("✅ Step 7: Fixed Shape of rew_pred_error after subject-wise extraction:", rew_pred_error_fixed.shape)
+
+# **Step 8: Compute mean across posterior samples (axis=0)**
+rew_pred_error_mean = np.nanmean(rew_pred_error_fixed, axis=0)
+
+# **Step 9: Verify last subject’s extracted values**
+print(f"✅ Last Subject's First 10 RPEs:", rew_pred_error_mean[-1][:10])
+print(f"✅ Last Subject's Total Trials Extracted: {np.count_nonzero(~np.isnan(rew_pred_error_mean[-1]))}")
+
+# **Step 10: Convert to DataFrame**
+df_rew_errors_fixed = pd.DataFrame(rew_pred_error_mean)
+
+# **Step 11: Rename columns for clarity**
+df_rew_errors_fixed.columns = [f'Trial_{t+1}' for t in range(df_rew_errors_fixed.shape[1])]
+df_rew_errors_fixed.insert(0, 'SubjectID', range(1, num_subjects + 1))
+
+# **Step 12: Print sample of fixed data**
+print("✅ Fixed reward prediction errors:")
+print(df_rew_errors_fixed.head())
+
+# **(Optional) Step 13: Save to CSV**
+df_rew_errors_fixed.to_csv("reward_prediction_errors_fixed.csv", index=False)
+print("✅ Fixed reward prediction errors saved to 'reward_prediction_errors_fixed.csv'")
+
+
+
+import numpy as np
+import pandas as pd
+
+# **Step 1: Extract posterior samples**
+posterior_samples = fit.to_frame()  # Extract posterior samples
+
+# **Step 2: Extract only `rew_pred_error` variables**
+rew_pred_error_columns = [col for col in posterior_samples.columns if "rew_pred_error" in col]
+rew_pred_error = posterior_samples[rew_pred_error_columns].values  # Convert to NumPy array
+
+# **Step 3: Debugging the extracted shape**
+print("🔹 Step 3: Default shape of rew_pred_error after extraction:", rew_pred_error.shape)
+
+# **Step 4: Extract number of subjects and their trials**
+num_subjects = len(stan_data['Tsubj'])  # Number of subjects
+trial_counts = np.array(stan_data['Tsubj'])  # Number of trials per subject
+max_trials = max(trial_counts)  # Maximum trials across subjects
+total_expected_trials = sum(trial_counts)  # The correct total trials
+
+# **Step 5: Print extracted trial counts**
+print("🔹 Step 5: Trial counts per subject:", trial_counts)
+print("🔹 Step 5: Maximum trials across subjects:", max_trials)
+print("🔹 Step 5: Expected total trials (sum of Tsubj):", total_expected_trials)
+
+# **🚀 Step 6: Fix Extraction Using Subject-Wise Indexing**
+rew_pred_error_fixed = np.full((8000, num_subjects, max_trials), np.nan)  # Initialize with NaNs
+
+for i in range(num_subjects):
+    num_trials = trial_counts[i]  # Correct number of trials for this subject
+
+    # **🚨 Identify Correct Subject-Wise Trial Indices**
+    subject_trial_indices = np.arange(i, rew_pred_error.shape[1], num_subjects)  # Extract every Nth entry
+
+    # **Extract correctly & preserve NaNs if missing**
+    rew_pred_error_fixed[:, i, :num_trials] = rew_pred_error[:, subject_trial_indices[:num_trials]]
+
+# **Step 7: Compute mean across posterior samples (axis=0)**
+rew_pred_error_mean = np.nanmean(rew_pred_error_fixed, axis=0)
+
+# **Step 8: Convert to New Format (Trials as Rows, Subjects as Columns)**
+max_trials = rew_pred_error_mean.shape[1]
+df_rew_errors_fixed = pd.DataFrame(rew_pred_error_mean.T)  # Transpose to get trials as rows
+df_rew_errors_fixed.columns = [f"Subject_{i+1}" for i in range(num_subjects)]  # Rename columns
+df_rew_errors_fixed.insert(0, "Trial", np.arange(1, max_trials + 1))  # Add trial numbers
+
+# **Step 9: Print sample of fixed data**
+print("✅ Fixed reward prediction errors (Subjects as Columns):")
+print(df_rew_errors_fixed.head())
+
+# **(Optional) Step 10: Save to CSV**
+df_rew_errors_fixed.to_csv("reward_prediction_errors_wide.csv", index=False)
+print("✅ Fixed reward prediction errors saved to 'reward_prediction_errors_wide.csv'")
 
 """Plotting y_pred"""
 
-# Extract y_pred from the Stan model fit, assuming the shape might need reconsideration for arm separation
-y_pred = fit.extract('y_pred')['y_pred']  # Shape: (8000, 10, 300)
+# Extract y_pred from the Stan fit
+y_pred = fit['y_pred']  # PyStan 3 method
+
+# Print shape to confirm
+print("Shape of y_pred before processing:", y_pred.shape)
+
+# Fix shape if needed (should be in (8000, 5, 300))
+if y_pred.shape != (8000, 5, 300):
+    y_pred = np.transpose(y_pred, (2, 0, 1))  # Swap axes if needed
+    print("Fixed Shape of y_pred:", y_pred.shape)
+
+"""subject mapping"""
+
+# Load dataset
+data = pd.read_csv('merged_ANH_stan.csv')
+
+# **Ensure 'subjid_num' is created before filtering**
+if 'subjid_num' not in data.columns:
+    subj_map = {subj: idx + 1 for idx, subj in enumerate(sorted(data['subjid'].unique()))}
+    data['subjid_num'] = data['subjid'].map(subj_map)  # Create numerical subject ID
+
+# **Filter for the same 5 subjects and first 200 trials**
+num_subjects = 10
+num_trials = 200
+
+data = data[data['subjid_num'].isin(np.arange(1, num_subjects + 1))]  # Select only 5 subjects
+data = data[data['trial'] <= num_trials]  # Limit to first 200 trials
+
+# Print verification
+print("Mapped Subject IDs:", data[['subjid', 'subjid_num']].drop_duplicates())
+print("Final dataset shape:", data.shape)
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# Assume y_pred is already loaded and shaped as (num_simulations, num_subjects, num_trials)
-num_simulations, num_subjects, num_trials = y_pred.shape
+# Ensure y_pred is in the correct shape
+print("Shape of y_pred before processing:", y_pred.shape)
+
+# Extract correct number of trials (ignoring padded -1s)
+num_samples, num_subjects, num_trials = y_pred.shape  # Should be (8000, 5, 300)
 num_arms = 3
-num_trials = 200  # Adjust to use only the first 200 trials
+num_trials = 200  # Limit to first 200 trials for visualization
 
-# Initialize a one-hot encoded array for arm choices
-y_pred_one_hot = np.zeros((num_simulations, num_subjects, num_trials, num_arms))
+# **Ignore -1 values** (only use up to each subject's actual trial count)
+# Initialize one-hot encoding array
+y_pred_one_hot = np.zeros((num_samples, num_subjects, num_trials, num_arms))
 
-# Convert y_pred to one-hot encoded format
+# Convert y_pred into one-hot encoding
 for arm in range(1, num_arms + 1):
     y_pred_one_hot[..., arm - 1] = (y_pred[:, :, :num_trials] == arm)
 
-# Calculate the mean probability of choosing each arm
-y_pred_probabilities = np.mean(y_pred_one_hot, axis=0)
+# **Compute mean probability across samples (axis=0)**
+y_pred_probabilities = np.mean(y_pred_one_hot, axis=0)  # Shape: (num_subjects, num_trials, num_arms)
 
-# Load your actual data
-data = pd.read_csv('merged_ANH_stan.csv')
-data = data[data['trial'] <= 200]  # Filter to only include the first 200 trials
-
-# Prepare the probabilities data for merging
+# Prepare probability data for merging
 prob_cols = [f'prob_arm_{i+1}' for i in range(num_arms)]
-probabilities_df = pd.DataFrame(y_pred_probabilities.reshape(-1, num_arms), columns=prob_cols)
+probabilities_df = pd.DataFrame(
+    y_pred_probabilities.reshape(-1, num_arms), columns=prob_cols
+)
 probabilities_df['trial'] = np.tile(np.arange(1, num_trials + 1), num_subjects)
-probabilities_df['subjid'] = np.repeat(np.arange(1, num_subjects + 1), num_trials)
+probabilities_df['subjid_num'] = np.repeat(np.arange(1, num_subjects + 1), num_trials)
 
-# Merge the probabilities with the actual data
-data_merged = pd.merge(data, probabilities_df, on=['subjid', 'trial'], how='left')
+# Merge probabilities with actual data
+data_merged = pd.merge(data, probabilities_df, on=['subjid_num', 'trial'], how='left')
 
-# Plotting for each subject
-for subjid in data_merged['subjid'].unique():
-    sample_data = data_merged[data_merged['subjid'] == subjid]
+# **Plot Predicted Probabilities vs. Actual Choices**
+for subjid in data_merged['subjid_num'].unique():
+    sample_data = data_merged[data_merged['subjid_num'] == subjid]
 
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(10, 8))
+
+    # Plot probability of each arm
     for i in range(num_arms):
-        sns.lineplot(x='trial', y=f'prob_arm_{i+1}', data=sample_data, label=f'Arm {i+1}')
+        sns.lineplot(x='trial', y=f'prob_arm_{i+1}', data=sample_data, label=f'Predicted Arm {i+1}')
 
-    # Plot original choices as scatter plot with y-offsets
-    scatter_y = np.ones(len(sample_data)) * 1.05  # Slightly above 1 for visibility
+    # **Plot actual choices as scatter points**
+    scatter_y = np.ones(len(sample_data)) * 1.05  # Position above 1 for visibility
     sns.scatterplot(x='trial', y=scatter_y, hue='choice', data=sample_data,
                     palette='deep', legend=None, s=10, marker='o', edgecolor='black')
 
-    plt.title(f'Subject {subjid} - Predicted Probabilities and Actual Choices')
+    plt.title(f'Subject {subjid} - Predicted Probabilities vs. Actual Choices')
     plt.xlabel('Trial Number')
     plt.ylabel('Probability')
     plt.ylim(0, 1.1)
     plt.legend(title='Predicted Arm')
     plt.show()
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+# **Ensure subjects are sorted**
+for subjid in sorted(data_merged['subjid_num'].unique()):  # Explicitly sort subjects
+    sample_data = data_merged[data_merged['subjid_num'] == subjid]
 
-# Assuming y_pred is already loaded and shaped as (num_simulations, num_subjects, num_trials)
-num_simulations, num_subjects, num_trials = y_pred.shape
-num_arms = 3
-num_trials = 200  # Adjust to use only the first 200 trials
+    plt.figure(figsize=(10, 8))
 
-# Initialize a one-hot encoded array for arm choices
-y_pred_one_hot = np.zeros((num_simulations, num_subjects, num_trials, num_arms))
-
-# Convert y_pred to one-hot encoded format
-for arm in range(1, num_arms + 1):
-    y_pred_one_hot[..., arm - 1] = (y_pred[:, :, :num_trials] == arm)
-
-# Calculate the mean probability of choosing each arm
-y_pred_probabilities = np.mean(y_pred_one_hot, axis=0)
-
-# Load your actual data
-data = pd.read_csv('merged_ANH_stan.csv')
-data = data[data['trial'] <= 200]  # Filter to only include the first 200 trials
-
-# Prepare the probabilities data for merging
-prob_cols = [f'prob_arm_{i+1}' for i in range(num_arms)]
-probabilities_df = pd.DataFrame(y_pred_probabilities.reshape(-1, num_arms), columns=prob_cols)
-probabilities_df['trial'] = np.tile(np.arange(1, num_trials + 1), num_subjects)
-probabilities_df['subjid'] = np.repeat(np.arange(1, num_subjects + 1), num_trials)
-
-# Merge the probabilities with the actual data
-data_merged = pd.merge(data, probabilities_df, on=['subjid', 'trial'], how='left')
-
-# Plotting for each subject
-for subjid in data_merged['subjid'].unique():
-    sample_data = data_merged[data_merged['subjid'] == subjid]
-
-    plt.figure(figsize=(15, 9))  # Larger figure size
+    # Plot probability of each arm
     for i in range(num_arms):
-        sns.lineplot(x='trial', y=f'prob_arm_{i+1}', data=sample_data, label=f'Arm {i+1}', linewidth=2.5)  # Thicker lines
+        sns.lineplot(x='trial', y=f'prob_arm_{i+1}', data=sample_data, label=f'Predicted Arm {i+1}')
 
-    # Plot original choices as scatter plot with y-offsets and jitter
-    scatter_y = np.ones(len(sample_data)) * 1.05  # Slightly above 1 for visibility
-    jitter = np.random.normal(0, 0.2, size=len(sample_data))
-    trial_with_jitter = sample_data['trial'] + jitter
-    sns.scatterplot(x=trial_with_jitter, y=scatter_y, hue='choice', data=sample_data,
-                    palette='deep', legend=None, s=120, marker='d', edgecolor='black', alpha=0.7)  # Larger markers
+    # **Plot actual choices as scatter points**
+    scatter_y = np.ones(len(sample_data)) * 1.05  # Position above 1 for visibility
+    sns.scatterplot(x='trial', y=scatter_y, hue='choice', data=sample_data,
+                    palette='deep', legend=None, s=10, marker='o', edgecolor='black')
 
-    plt.title(f'Subject {subjid} - Predicted Probabilities and Actual Choices', fontsize=16)
-    plt.xlabel('Trial Number', fontsize=14)
-    plt.ylabel('Probability', fontsize=14)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
+    plt.title(f'Subject {subjid} - Predicted Probabilities vs. Actual Choices')
+    plt.xlabel('Trial Number')
+    plt.ylabel('Probability')
     plt.ylim(0, 1.1)
-    plt.legend(title='Predicted Arm', title_fontsize='13', fontsize='12')
+    plt.legend(title='Predicted Arm')
     plt.show()
+
+# Sum probabilities across arms for each subject and trial
+prob_sum = np.sum(y_pred_probabilities, axis=2)  # Sum over the last axis (arms)
+
+# Print summary statistics
+print("Checking if predicted probabilities sum to 1 across arms:")
+print("Mean sum:", np.mean(prob_sum))
+print("Min sum:", np.min(prob_sum))
+print("Max sum:", np.max(prob_sum))
+
+# Check if all values are close to 1 (within small numerical error)
+if np.allclose(prob_sum, 1, atol=1e-6):
+    print("✅ All probability sums are correctly equal to 1!")
+else:
+    print("❌ Warning: Some probability sums are not 1!")
+
+# Print a few sample values for manual verification
+print("\nSample probability sums per subject per trial:")
+print(prob_sum[:5, :10])  # Show first 5 subjects and 10 trials
